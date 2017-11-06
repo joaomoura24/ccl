@@ -42,7 +42,7 @@ addpath(genpath('../')); % add the library and it's subfolders to the path
 %--------------------------------------------------------------------------
 fprintf(1,'Getting data ...\n');
 %load('../data_generation/data_simulated.mat');
-load('data.mat');
+load('data_smooth.mat');
 %load('demonstrations_mat/data.mat');
 NDem = length(x); % number of demonstrations
 %--------------------------------------------------------------------------
@@ -54,7 +54,7 @@ NDem = length(x); % number of demonstrations
 fprintf(1,'Defining robot model ...\n');
 robot = SerialLink(DH); % Peters Cork robotics library has to be installed
 Phi_A = def_phia_4_spm(robot); % Phi_A(x): vector of regressors for the Constraint matrix as a function of the configuration
-Phi_b = def_phib_4_spm_exp(robot); % Phi_b(x): vector of regressors for the main task as a function of the configuration
+%Phi_b = def_phib_4_spm_new(robot); % Phi_b(x): vector of regressors for the main task as a function of the configuration
 %--------------------------------------------------------------------------
 %--------------------------------------------------------------------------
 
@@ -71,13 +71,12 @@ gcp(); % Get the current parallel pool
 %--------------------------------------------------------------------------
 fprintf(1,'Estimating constraints ...\n');
 N_Estimator = def_constraint_estimator(Phi_A,...
-                        'system_type','forced_action',...
-                        'task_regressors',Phi_b,...
+                        'system_type','stationary',...
                         'constraint_dim',3);
 N_hat = cell(1,NDem);
 H_cell = cell(1,NDem);
 W_hat = cell(1,NDem);
-for idx=1:NDem
+parfor idx=1:NDem
     [N_hat{idx}, H_cell{idx}, W_hat{idx}] = feval(N_Estimator, x{idx}, u{idx});
 end
 %--------------------------------------------------------------------------
@@ -97,7 +96,7 @@ parfor idx=1:NDem
     %p{idx} = transl(robot.fkine(cell2mat(q{idx}).')); % compute end-effector postion
     p{idx} = getPos(cell2mat(x{idx}).'); % compute end-effector postion
     [c{idx}, r{idx}, n{idx}] = fit_3d_circle(p{idx}(:,1),p{idx}(:,2),p{idx}(:,3));
-    Phi{idx} = def_phi_4_cwm_sim(robot, c{idx}, r{idx}); % Get regressors for the unconstrained policy
+    Phi{idx} = def_phi_4_cwm(robot, c{idx}, r{idx}); % Get regressors for the unconstrained policy
 end
 %--------------------------------------------------------------------------
 %--------------------------------------------------------------------------
@@ -131,7 +130,8 @@ model.c = C.';
 fprintf(1,'Learning Model Parameters...\n');
 R_cell = cell(1,NDem);
 parfor idx=1:NDem
-    R_cell{idx} = compute_matrix_r(N_hat{idx}, Phi{idx}, x{idx});
+    %R_cell{idx} = compute_matrix_r(N_hat{idx}, Phi{idx}, x{idx});
+    R_cell{idx} = cellfun(@(q) N_hat{idx}(q)*Phi{idx}(q), x{idx}, 'UniformOutput',false);
 end
 R = cell2mat([R_cell{:}].');
 Y = cell2mat([u{:}].');
@@ -164,6 +164,7 @@ end
 %--------------------------------------------------------------------------
 %--------------------------------------------------------------------------
 fprintf(1,'Compute End-Effector positions...\n');
+Phi_A = def_phia_4_spm(robot);
 Phi_b = def_phib_4_spm_sim(robot); % vector of regressors as a function of the configuration for the main task
 pos = cell(1, NDem); % wiping circle centre
 traj = cell(1, NDem); % joints trajectory
