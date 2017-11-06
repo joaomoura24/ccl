@@ -54,7 +54,7 @@ function functionHandle = def_phia_4_spm_new(robotHandle)
 %------------- BEGIN CODE --------------
 functionHandle = @Phi_A;
 function output = Phi_A(q)
-    J = robotHandle.jacobn(q); % Robot Jacobian in the end-effector reference frame.
+    J = robotHandle.jacobe(q); % Robot Jacobian in the end-effector reference frame.
     output = J(3:5,:);
 end
 %------------- END OF CODE --------------
