@@ -27,6 +27,7 @@ DH = [0.0, 0.31, 0.0, pi/2; % Robot Kinematic model specified by the Denavit-Har
       0.0, 0.21-0.132, 0.0, 0.0];
 robot = SerialLink(DH); % Peters Cork robotics library has to be installed
 Phi_A = def_phia_4_spm(robot); % Phi_A(q): vector of regressors for the Constraint matrix as a function of the configuration
+Phi_b = def_phib_4_spm_exp(robot);
 %--------------------------------------------------------------------------
 %--------------------------------------------------------------------------
 
@@ -42,18 +43,18 @@ gcp(); % Get the current parallel pool
 %--------------------------------------------------------------------------
 %--------------------------------------------------------------------------
 fprintf(1,'Computing H ...\n');
-x_all = [x{:}]; % all states together as cell
-u_all = [u{:}]; % all actions together as cell
-file_name = 'H_A.mat';
+file_name = 'H_cell.mat';
+H_fun = @(x,u) [Phi_A(x)*u; -Phi_b(x)];
 if exist(file_name,'file')
     load(file_name);
 else
-    H_cell = cell(size(x_all));
-    parfor idx=1:length(H_cell)
+    H_cell = cell(1, NDem);
+    H = cell(1, NDem);
+    parfor idx=1:NDem
         % H(q,u): Matrix of regressors as a function of the configuration and action compute number of regressors
-        H_cell{idx} = feval(Phi_A, x_all{idx})*u_all{idx};
+        H_cell{idx} = cellfun(H_fun, x{idx}, u{idx},'UniformOutput',false);
+        H{idx} = cell2mat(H_cell{idx});
     end
-    H = cell2mat(H_cell);
     save(file_name,'H','H_cell');
 end
 %--------------------------------------------------------------------------
@@ -63,16 +64,16 @@ end
 %--------------------------------------------------------------------------
 %% Estimating weights with the all data sets together and saving to file
 fprintf(1, 'Estimating W ...\n');
-getWFileName = @(w,i) strcat('W_A/w',num2str(w),'i',num2str(i),'.mat');
 tic;
 ConstraintDim = 3;
-for window_size = 2000
-    for increment = 500
-        [W_hat, W_hat_vec, Hw] = estimateW4windows(H, ConstraintDim, increment, window_size);
-        save(getWFileName(window_size, increment),'W_hat','W_hat_vec','Hw');
-        clear W_hat W_hat_vec Hw;
-    end
+W_hat = cell(1,NDem);
+W_hat_vec = cell(1,NDem);
+parfor idx=1:NDem
+    [Ui,~,~]=svd(H{idx});
+    W_hat{idx} = Ui(:,(end-(ConstraintDim-1)):end).';
+    W_hat_vec{idx} = reshape(W_hat{idx},[],1);
 end
+save('W_true','W_hat','W_hat_vec');
 toc
 %--------------------------------------------------------------------------
 %--------------------------------------------------------------------------
