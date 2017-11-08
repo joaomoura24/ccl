@@ -26,8 +26,8 @@ DH = [0.0, 0.31, 0.0, pi/2; % Robot Kinematic model specified by the Denavit-Har
       0.0, 0.0, 0.0, -pi/2;
       0.0, 0.21-0.132, 0.0, 0.0];
 robot = SerialLink(DH); % Peters Cork robotics library has to be installed
-Phi_A = def_phia_4_spm(robot); % Phi_A(q): vector of regressors for the Constraint matrix as a function of the configuration
-Phi_b = def_phib_4_spm_exp(robot);
+Phi_A = def_phia_4_spm_new(robot); % Phi_A(q): vector of regressors for the Constraint matrix as a function of the configuration
+%Phi_b = def_phib_4_spm_exp(robot);
 %--------------------------------------------------------------------------
 %--------------------------------------------------------------------------
 
@@ -43,11 +43,12 @@ gcp(); % Get the current parallel pool
 %--------------------------------------------------------------------------
 %--------------------------------------------------------------------------
 fprintf(1,'Computing H ...\n');
-file_name = 'H_cell.mat';
-H_fun = @(x,u) [Phi_A(x)*u; -Phi_b(x)];
-if exist(file_name,'file')
-    load(file_name);
-else
+file_name = 'H_cell_A.mat';
+%H_fun = @(x,u) [Phi_A(x)*u; -Phi_b(x)];
+H_fun = @(x,u) Phi_A(x);
+% if exist(file_name,'file')
+%     load(file_name);
+% else
     H_cell = cell(1, NDem);
     H = cell(1, NDem);
     parfor idx=1:NDem
@@ -56,7 +57,7 @@ else
         H{idx} = cell2mat(H_cell{idx});
     end
     save(file_name,'H','H_cell');
-end
+% end
 %--------------------------------------------------------------------------
 %--------------------------------------------------------------------------
 
@@ -73,7 +74,7 @@ parfor idx=1:NDem
     W_hat{idx} = Ui(:,(end-(ConstraintDim-1)):end).';
     W_hat_vec{idx} = reshape(W_hat{idx},[],1);
 end
-save('W_true','W_hat','W_hat_vec');
+save('W_true_A','W_hat','W_hat_vec');
 toc
 %--------------------------------------------------------------------------
 %--------------------------------------------------------------------------

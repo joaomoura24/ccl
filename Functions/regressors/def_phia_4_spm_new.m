@@ -54,8 +54,11 @@ function functionHandle = def_phia_4_spm_new(robotHandle)
 %------------- BEGIN CODE --------------
 functionHandle = @Phi_A;
 function output = Phi_A(q)
-    J = robotHandle.jacobe(q); % Robot Jacobian in the end-effector reference frame.
-    output = J(3:5,:);
+    T = robotHandle.fkine(q);
+    rot = t2r(T); % End-effector orientation (rotation matrix).
+    zT = rot(:,3); % Unit vectors that define the plane perpendicular to end-effector.
+    tT = reshape(transl(T),[],1); % End-effector position.
+    output = [tT; zT];
 end
 %------------- END OF CODE --------------
 end

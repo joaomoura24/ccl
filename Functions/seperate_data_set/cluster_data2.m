@@ -1,13 +1,13 @@
 %% Auxiliar functions:
 %--------------------------------------------------------------------------
-getWFileName = @(w,i) strcat('W_A/w',num2str(w),'i',num2str(i),'.mat');
+getWFileName = @(w,i) strcat('W_A_new/w',num2str(w),'i',num2str(i),'.mat');
 dot_prod = @(a,b) sum(bsxfun(@times,bsxfun(@minus,a,b),bsxfun(@minus,a,b)),1);
 %--------------------------------------------------------------------------
 
 %% User input
 %--------------------------------------------------------------------------
-window_size = 4000;
-increment = 4000;
+window_size = 1400;
+increment = 50;
 %--------------------------------------------------------------------------
 
 %% Load estimated gains W
@@ -41,8 +41,8 @@ toc
 %--------------------------------------------------------------------------
 figure();
 imagesc(W_corr_mean); colorbar; colormap jet;
-%caxis([0 0.0005]);
-figure();
-imagesc(W_corr_std); colorbar; colormap jet;
+%caxis([0 0.03]);
+%figure();
+%imagesc(W_corr_std); colorbar; colormap jet;
 %caxis([0 0.005]);
 %--------------------------------------------------------------------------
