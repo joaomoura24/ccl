@@ -6,8 +6,8 @@ dot_prod = @(a,b) sum(bsxfun(@times,bsxfun(@minus,a,b),bsxfun(@minus,a,b)),1);
 
 %% User input
 %--------------------------------------------------------------------------
-window_size = 1400;
-increment = 50;
+window_size = 1200;
+increment = 100;
 %--------------------------------------------------------------------------
 
 %% Load estimated gains W
@@ -15,8 +15,7 @@ increment = 50;
 file_name = getWFileName(window_size, increment);
 load(file_name);
 %--------------------------------------------------------------------------
-% load('W_true_A.mat');
-% load('H_cell_A.mat'); Hw = H;
+%load('W_true_A.mat');
 %% Compute Correlation Matrix between W of different windows
 %--------------------------------------------------------------------------
 Nwindows = length(W_hat_vec);
@@ -41,8 +40,8 @@ toc
 %--------------------------------------------------------------------------
 figure();
 imagesc(W_corr_mean); colorbar; colormap jet;
-%caxis([0 0.03]);
-%figure();
-%imagesc(W_corr_std); colorbar; colormap jet;
-%caxis([0 0.005]);
+caxis([0 0.0005]);
+figure();
+imagesc(W_corr_std); colorbar; colormap jet;
+%caxis([0 2]);
 %--------------------------------------------------------------------------
