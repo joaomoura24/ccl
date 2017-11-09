@@ -50,15 +50,14 @@ function functionHandle = def_phia_4_spm_new(robotHandle)
 % email address: Joao.Moura@ed.ac.uk
 % Website: http://www.edinburgh-robotics.org/students/joao-moura
 % October 2017; Last revision: 28-Oct-2017
-
 %------------- BEGIN CODE --------------
 functionHandle = @Phi_A;
 function output = Phi_A(q)
-    T = robotHandle.fkine(q);
-    rot = t2r(T); % End-effector orientation (rotation matrix).
-    zT = rot(:,3); % Unit vectors that define the plane perpendicular to end-effector.
-    tT = reshape(transl(T),[],1); % End-effector position.
-    output = [tT; zT];
+    % create new robot
+    robot2 = SerialLink(robotHandle.links(1:end-1));
+    J = robotHandle.jacob0(q,'trans'); % Robot Jacobian in the global reference frame.
+    J2 = robot2.jacob0(q(1:(end-1)),'trans');
+    output = [J; J2 zeros(3,1)];
 end
 %------------- END OF CODE --------------
 end
