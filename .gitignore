@@ -1,3 +1,6 @@
 *.dat
 *.mat
 *.fig
+*.pdf
+*.eps
+*.png
