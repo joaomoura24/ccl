@@ -54,7 +54,7 @@ NDem = length(x); % number of demonstrations
 fprintf(1,'Defining robot model ...\n');
 robot = SerialLink(DH); % Peters Cork robotics library has to be installed
 Phi_A = def_phia_4_spm(robot); % Phi_A(x): vector of regressors for the Constraint matrix as a function of the configuration
-%Phi_b = def_phib_4_spm_new(robot); % Phi_b(x): vector of regressors for the main task as a function of the configuration
+Phi_b = def_phib_4_spm_sim(robot); % Phi_b(x): vector of regressors for the main task as a function of the configuration
 %--------------------------------------------------------------------------
 %--------------------------------------------------------------------------
 
@@ -71,7 +71,8 @@ gcp(); % Get the current parallel pool
 %--------------------------------------------------------------------------
 fprintf(1,'Estimating constraints ...\n');
 N_Estimator = def_constraint_estimator(Phi_A,...
-                        'system_type','stationary',...
+                        'system_type','forced_action',...
+                        'task_regressors',Phi_b,...
                         'constraint_dim',3);
 N_hat = cell(1,NDem);
 H_cell = cell(1,NDem);
@@ -93,10 +94,9 @@ p = cell(1, NDem); % end-effector cartesian position in global frame
 Phi = cell(1,NDem);
 getPos = @(q) transl(robot.fkine(q)); % compute end-effector postion
 parfor idx=1:NDem
-    %p{idx} = transl(robot.fkine(cell2mat(q{idx}).')); % compute end-effector postion
     p{idx} = getPos(cell2mat(x{idx}).'); % compute end-effector postion
     [c{idx}, r{idx}, n{idx}] = fit_3d_circle(p{idx}(:,1),p{idx}(:,2),p{idx}(:,3));
-    Phi{idx} = def_phi_4_cwm(robot, c{idx}, r{idx}); % Get regressors for the unconstrained policy
+    Phi{idx} = def_phi_4_cwm_sim(robot, c{idx}, r{idx}); % Get regressors for the unconstrained policy
 end
 %--------------------------------------------------------------------------
 %--------------------------------------------------------------------------
@@ -129,12 +129,18 @@ model.c = C.';
 %--------------------------------------------------------------------------
 fprintf(1,'Learning Model Parameters...\n');
 R_cell = cell(1,NDem);
+% Compute matrix R: policy regressors times estimated null space prjection:
 parfor idx=1:NDem
-    %R_cell{idx} = compute_matrix_r(N_hat{idx}, Phi{idx}, x{idx});
     R_cell{idx} = cellfun(@(q) N_hat{idx}(q)*Phi{idx}(q), x{idx}, 'UniformOutput',false);
 end
 R = cell2mat([R_cell{:}].');
-Y = cell2mat([u{:}].');
+% Compute null space component of actions: u_ns
+u_ns = cell(1,NDem);
+parfor idx=1:NDem
+    u_ns{idx} = cellfun(@(q,u) N_hat{idx}(q)*u, x{idx}, u{idx}, 'UniformOutput',false);
+end
+Y = cell2mat([u_ns{:}].');
+% Weighting matrix:
 B = zeros(size(Phi{1}(x{1}{1}),2),size(model.c,2));
 w = @(m) @(x) exp(-0.5.*sum(bsxfun(@rdivide, bsxfun(@minus,x,model.c(:,m)).^2, model.var))).'; % importance weights W = [w1 w2 ... w_m ... w_M]
 [nRrow,nRcol] = size(R_cell{1}{1});
@@ -152,9 +158,9 @@ model.b = B;
 %--------------------------------------------------------------------------
 %--------------------------------------------------------------------------
 fprintf(1,'Computing Unconstrained Policy...\n');
-policy = cell(1,NDem);
+policy_CAL = cell(1,NDem);
 parfor idx=1:NDem
-    policy{idx} = def_weighted_linear_model(model, Phi{idx});
+    policy_CAL{idx} = def_weighted_linear_model(model, Phi{idx});
 end
 %--------------------------------------------------------------------------
 %--------------------------------------------------------------------------
@@ -171,7 +177,7 @@ traj = cell(1, NDem); % joints trajectory
 parfor idx=1:NDem
     % Problem specific constants taken from data:
     x0 = x{idx}{1}; % initial configuration
-    Kp = 5; % proportional gain
+    Kp = 1; % proportional gain
     % Constant matrices:
     W_A = blkdiag(n{idx}.', n{idx}.', n{idx}.'); % constant gain matrix for the Constraint matrix
     W_b = -Kp*[W_A [-n{idx}.'*c{idx}; 0; 0]];
@@ -179,7 +185,7 @@ parfor idx=1:NDem
     A = @(x) W_A*feval(Phi_A,x); % Constraint matrix as a function of configuration
     b = @(x) W_b*feval(Phi_b,x); % main task as a function of the configuration
     % Constrained Policie
-    dx = def_constrained_policy(A, b, policy{idx});
+    dx = def_constrained_policy(A, b, policy_CAL{idx});
     % solving motion
     sol = ode113(@(t,x) dx(x),[0 t{idx}{end}], x0);
     [traj{idx}, ~] = deval(sol,cell2mat(t{idx})); % evaluation of solution
@@ -193,18 +199,18 @@ end
 %--------------------------------------------------------------------------
 %--------------------------------------------------------------------------
 fprintf(1,'Plotting Results...\n');
-figure();
-for idx=1:NDem
+figure(); hold on;
+%for idx=1:NDem
+for idx=[1,2,4,7]
     % plot
-    subplot(3,4,idx);
-    plot3(c{idx}(1),c{idx}(2),c{idx}(3),'*r'); hold on;
     plot3(p{idx}(:,1),p{idx}(:,2),p{idx}(:,3),'g');
-    plot3(pos{idx}(:,1),pos{idx}(:,2),pos{idx}(:,3));
-    plotCircle3D(c{idx},r{idx},n{idx});
-    xlabel('x'); ylabel('y'); zlabel('z');
-    legend('centre','data','policy','circle');
-    axis equal;
+    plot3(pos{idx}(:,1),pos{idx}(:,2),pos{idx}(:,3),'b');
 end
+legend('data','policy','Location','best');
+xlabel('x [m]'); ylabel('y [m]'); zlabel('z [m]');
+grid on;
+axis equal;
+view(-60,20);
 error('stop here');
 %--------------------------------------------------------------------------
 %--------------------------------------------------------------------------
