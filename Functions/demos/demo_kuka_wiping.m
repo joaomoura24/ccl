@@ -166,7 +166,8 @@ end
 fprintf(1,'Computing data variance...\n');
 xall = cell2mat([x{:}]).';
 scale = 2;
-model.var = scale.*std(xall,1,1).';
+model_CAPL.var = scale.*std(xall,1,1).';
+model_DPL.var = scale.*std(xall,1,1).';
 %--------------------------------------------------------------------------
 %--------------------------------------------------------------------------
 
@@ -179,7 +180,8 @@ options = statset('Display','off','MaxIter',200,'UseParallel',1,'UseSubstreams',
 Nmodels = 25;
 [~,C] = kmeans(xall,Nmodels,'Distance','cityblock','EmptyAction','singleton','Start','uniform',...
     'Replicates',10,'OnlinePhase','off','Options', options);
-model.c = C.';
+model_CAPL.c = C.';
+model_DPL.c = C.';
 %--------------------------------------------------------------------------
 %--------------------------------------------------------------------------
 
@@ -192,24 +194,30 @@ R_cell = cell(1,NDem);
 parfor idx=1:NDem
     R_cell{idx} = cellfun(@(Nhat,phi) Nhat*phi, N_hat_phi{idx}, Phi_q{idx}, 'UniformOutput',false);
 end
-R = cell2mat([R_cell{:}].');
+R_CAPL = cell2mat([R_cell{:}].');
+R_DPL = cell2mat([Phi_q{:}].');
 % Compute null space component of actions: u_ns
 u_ns = cell(1,NDem);
 parfor idx=1:NDem
     u_ns{idx} = cellfun(@(Nhat,u) Nhat*u, N_hat_phi{idx}, u{idx}, 'UniformOutput',false);
 end
-Y = cell2mat([u_ns{:}].');
+Y_CAPL = cell2mat([u_ns{:}].');
+Y_DPL = cell2mat([u{:}].');
 % Weighting matrix:
-B = zeros(size(Phi{1}(x{1}{1}),2),size(model.c,2));
-w = @(m) @(x) exp(-0.5.*sum(bsxfun(@rdivide, bsxfun(@minus,x,model.c(:,m)).^2, model.var))).'; % importance weights W = [w1 w2 ... w_m ... w_M]
+B_CAPL = zeros(size(Phi_q{1}{1},2),size(model_CAPL.c,2));
+B_DPL = zeros(size(Phi_q{1}{1},2),size(model_DPL.c,2));
+w = @(m) @(x) exp(-0.5.*sum(bsxfun(@rdivide, bsxfun(@minus,x,model_CAPL.c(:,m)).^2, model_CAPL.var))).'; % importance weights W = [w1 w2 ... w_m ... w_M]
 [nRrow,nRcol] = size(R_cell{1}{1});
-parfor m=1:size(model.c,2)
+parfor m=1:size(model_CAPL.c,2)
     wm = feval(w, m);
     Wm = repelem(wm(xall.'),nRrow,nRcol);
-    RWm = R.*Wm;
-    B(:,m) = pinv(RWm.'*R)*RWm.'*Y;
+    RWm_CAPL = R_CAPL.*Wm;
+    RWm_DPL = R_DPL.*Wm;
+    B_CAPL(:,m) = pinv(RWm_CAPL.'*R_CAPL)*RWm_CAPL.'*Y_CAPL;
+    B_DPL(:,m) = pinv(RWm_DPL.'*R_DPL)*RWm_DPL.'*Y_DPL;
 end
-model.b = B;
+model_CAPL.b = B_CAPL;
+model_DPL.b = B_DPL;
 %--------------------------------------------------------------------------
 %--------------------------------------------------------------------------
 
@@ -217,9 +225,11 @@ model.b = B;
 %--------------------------------------------------------------------------
 %--------------------------------------------------------------------------
 fprintf(1,'Computing Unconstrained Policy...\n');
-policy_CAL = cell(1,NDem);
+policy_CAPL = cell(1,NDem);
+policy_DPL = cell(1,NDem);
 parfor idx=1:NDem
-    policy_CAL{idx} = def_weighted_linear_model(model, Phi{idx});
+    policy_CAPL{idx} = def_weighted_linear_model(model_CAPL, Phi{idx});
+    policy_DPL{idx} = def_weighted_linear_model(model_DPL, Phi{idx});
 end
 %--------------------------------------------------------------------------
 %--------------------------------------------------------------------------
@@ -230,14 +240,21 @@ end
 fprintf(1,'Compute End-Effector positions...\n');
 plot_idx = [1,2,4,7];
 Nidx = numel(plot_idx);
-pos = cell(1, Nidx); % wiping circle centre
-traj = cell(1, Nidx); % joints trajectory
+pos_CAPL_dx = cell(1, Nidx); % wiping circle centre
+traj_CAPL_dx = cell(1, Nidx); % joints trajectory
+pos_DPL_dx = cell(1, Nidx); % wiping circle centre
+traj_DPL_dx = cell(1, Nidx); % joints trajectory
+pos_CAPL_pi = cell(1, Nidx); % wiping circle centre
+traj_CAPL_pi = cell(1, Nidx); % joints trajectory
+pos_DPL_pi = cell(1, Nidx); % wiping circle centre
+traj_DPL_pi = cell(1, Nidx); % joints trajectory
 % Select subset of trajectories
 x_ = x(plot_idx);
 t_ = t(plot_idx);
 n_ = n(plot_idx);
 c_ = c(plot_idx);
-policy_CAL_ = policy_CAL(plot_idx);
+policy_CAPL_ = policy_CAPL(plot_idx);
+policy_DPL_ = policy_DPL(plot_idx);
 parfor idx=1:Nidx
     % Problem specific constants taken from data:
     x0 = x_{idx}{1}; % initial configuration
@@ -249,12 +266,22 @@ parfor idx=1:Nidx
     A = @(x) W_A*feval(Phi_A,x); % Constraint matrix as a function of configuration
     b = @(x) W_b*feval(Phi_b,x); % main task as a function of the configuration
     % Constrained Policie
-    dx = def_constrained_policy(A, b, policy_CAL_{idx});
+    dx_CAPL = def_constrained_policy(A, b, policy_CAPL_{idx});
+    dx_DPL = def_constrained_policy(A, b, policy_DPL_{idx});
     % solving motion
-    sol = ode113(@(t,x) dx(x),[0 t_{idx}{end}], x0);
-    [traj_{idx}, ~] = deval(sol,cell2mat(t_{idx})); % evaluation of solution
-    %pos=transl(robot.fkine(traj));
-    pos_{idx}=getPos(traj_{idx}.');
+    sol_CAPL_dx = ode113(@(t,x) dx_CAPL(x),[0 t_{idx}{end}], x0);
+    [traj_CAPL_dx{idx}, ~] = deval(sol_CAPL_dx,cell2mat(t_{idx})); % evaluation of solution
+    sol_DPL_dx = ode113(@(t,x) dx_DPL(x),[0 t_{idx}{end}], x0);
+    [traj_DPL_dx{idx}, ~] = deval(sol_DPL_dx,cell2mat(t_{idx})); % evaluation of solution
+    sol_CAPL_pi = ode113(@(t,x) policy_CAPL_{idx}(x),[0 t_{idx}{end}], x0);
+    [traj_CAPL_pi{idx}, ~] = deval(sol_CAPL_pi,cell2mat(t_{idx})); % evaluation of solution
+    sol_DPL_pi = ode113(@(t,x) policy_DPL_{idx}(x),[0 t_{idx}{end}], x0);
+    [traj_DPL_pi{idx}, ~] = deval(sol_DPL_pi,cell2mat(t_{idx})); % evaluation of solution
+    % End-effector position
+    pos_CAPL_dx{idx}=getPos(traj_CAPL_dx{idx}.');
+    pos_DPL_dx{idx}=getPos(traj_DPL_dx{idx}.');
+    pos_CAPL_pi{idx}=getPos(traj_CAPL_pi{idx}.');
+    pos_DPL_pi{idx}=getPos(traj_DPL_pi{idx}.');
 end
 %--------------------------------------------------------------------------
 %--------------------------------------------------------------------------
@@ -269,7 +296,29 @@ p_ = p(plot_idx);
 for idx=1:Nidx
     % plot
     plot3(p_{idx}(:,1),p_{idx}(:,2),p_{idx}(:,3),'g');
-    plot3(pos_{idx}(:,1),pos_{idx}(:,2),pos_{idx}(:,3),'b');
+    plot3(pos_CAPL_dx{idx}(:,1),pos_CAPL_dx{idx}(:,2),pos_CAPL_dx{idx}(:,3),'b');
+    plot3(pos_DPL_dx{idx}(:,1),pos_DPL_dx{idx}(:,2),pos_DPL_dx{idx}(:,3),'r');
+end
+legend('data','policy','Location','best');
+xlabel('x [m]'); ylabel('y [m]'); zlabel('z [m]');
+grid on;
+axis equal;
+view(-60,20);
+%--------------------------------------------------------------------------
+%--------------------------------------------------------------------------
+
+%% Plot end-effector positions
+%--------------------------------------------------------------------------
+%--------------------------------------------------------------------------
+fprintf(1,'Plotting Results...\n');
+figure(); hold on;
+p_ = p(plot_idx);
+%for idx=1:NDem
+for idx=1:Nidx
+    % plot
+    plot3(p_{idx}(:,1),p_{idx}(:,2),p_{idx}(:,3),'g');
+    plot3(pos_CAPL_pi{idx}(:,1),pos_CAPL_pi{idx}(:,2),pos_CAPL_pi{idx}(:,3),'b');
+    plot3(pos_DPL_pi{idx}(:,1),pos_DPL_pi{idx}(:,2),pos_DPL_pi{idx}(:,3),'r');
 end
 legend('data','policy','Location','best');
 xlabel('x [m]'); ylabel('y [m]'); zlabel('z [m]');
