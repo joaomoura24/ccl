@@ -15,46 +15,12 @@
 % Edinburgh Centre for Robotics, Edinburgh, UK
 % email address: Joao.Moura@ed.ac.uk
 % Website: http://www.edinburgh-robotics.org/students/joao-moura
-% October 2017; Last revision: 23-Oct-2017
-
-%% User Input
-%--------------------------------------------------------------------------
-%--------------------------------------------------------------------------
-DH = [0.0, 0.31, 0.0, pi/2; % Robot Kinematic model specified by the Denavit-Hartnbergh
-      0.0, 0.0, 0.0, -pi/2;
-      0.0, 0.4, 0.0, -pi/2;
-      0.0, 0.0, 0.0, pi/2;
-      0.0, 0.39, 0.0, pi/2;
-      0.0, 0.0, 0.0, -pi/2;
-      0.0, 0.21-0.132, 0.0, 0.0];
-%--------------------------------------------------------------------------
-%--------------------------------------------------------------------------
+% October 2017; Last revision: 09-Mar-2018
 
 %% Add path
 %--------------------------------------------------------------------------
 %--------------------------------------------------------------------------
 addpath(genpath('../')); % add the library and it's subfolders to the path
-%--------------------------------------------------------------------------
-%--------------------------------------------------------------------------
-
-%% Get data
-%--------------------------------------------------------------------------
-%--------------------------------------------------------------------------
-fprintf(1,'Getting data ...\n');
-%load('../data_generation/data_simulated.mat');
-load('data_smooth.mat');
-%load('demonstrations_mat/data.mat');
-NDem = length(x); % number of demonstrations
-%--------------------------------------------------------------------------
-%--------------------------------------------------------------------------
-
-%% Initialize roobot model and the Regressors for the constraint and main task
-%--------------------------------------------------------------------------
-%--------------------------------------------------------------------------
-fprintf(1,'Defining robot model ...\n');
-robot = SerialLink(DH); % Peters Cork robotics library has to be installed
-Phi_A = def_phia_4_spm(robot); % Phi_A(x): vector of regressors for the Constraint matrix as a function of the configuration
-Phi_b = def_phib_4_spm_sim(robot); % Phi_b(x): vector of regressors for the main task as a function of the configuration
 %--------------------------------------------------------------------------
 %--------------------------------------------------------------------------
 
@@ -66,19 +32,98 @@ gcp(); % Get the current parallel pool
 %--------------------------------------------------------------------------
 %--------------------------------------------------------------------------
 
+%% Initialize roobot model
+%--------------------------------------------------------------------------
+%--------------------------------------------------------------------------
+fprintf(1,'Defining robot model ...\n');
+DH = [0.0, 0.31, 0.0, pi/2; % Robot Kinematic model specified by the Denavit-Hartnbergh
+      0.0, 0.0, 0.0, -pi/2;
+      0.0, 0.4, 0.0, -pi/2;
+      0.0, 0.0, 0.0, pi/2;
+      0.0, 0.39, 0.0, pi/2;
+      0.0, 0.0, 0.0, -pi/2;
+      0.0, 0.21-0.132, 0.0, 0.0];
+robot = SerialLink(DH); % Peters Cork robotics library has to be installed
+%--------------------------------------------------------------------------
+%--------------------------------------------------------------------------
+
+%% Get data
+%--------------------------------------------------------------------------
+%--------------------------------------------------------------------------
+fprintf(1,'Getting data ...\n');
+file_name = 'data_smooth';
+file_ext = '.mat';
+load(strcat(file_name,file_ext));
+NDem = length(x); % number of demonstrations
+%--------------------------------------------------------------------------
+%--------------------------------------------------------------------------
+
+%% Compute end-effector position:
+%--------------------------------------------------------------------------
+%--------------------------------------------------------------------------
+fprintf(1,'Computing end-effector position ...\n');
+getPos = @(q) transl(robot.fkine(q)); % compute end-effector postion
+file_pos = strcat(file_name,'_pos',file_ext);
+if exist(file_pos, 'file') == 2
+    load(file_pos);
+else
+    p = cell(1, NDem); % end-effector cartesian position in global frame
+    tic;
+    parfor idx=1:NDem
+        p{idx} = getPos(cell2mat(x{idx}).'); % compute end-effector postion
+    end
+    toc
+    save(file_pos);
+end
+%--------------------------------------------------------------------------
+%--------------------------------------------------------------------------
+
+%% Define constraint and main task regressors:
+%--------------------------------------------------------------------------
+%--------------------------------------------------------------------------
+fprintf(1,'Defining Phi_A and Phi_b ...\n');
+Phi_A = def_phia_4_spm(robot); % Phi_A(x): vector of regressors for the Constraint matrix as a function of the configuration
+Phi_b = def_phib_4_spm_sim(robot); % Phi_b(x): vector of regressors for the main task as a function of the configuration
+%--------------------------------------------------------------------------
+%--------------------------------------------------------------------------
+
+%% Evaluate constraint and main task regressors:
+%--------------------------------------------------------------------------
+%--------------------------------------------------------------------------
+fprintf(1,'Evaluating Phi_A and Phi_b ...\n');
+file_phiAb = strcat(file_name,'_phiAq',file_ext);
+if exist(file_phiAb, 'file') == 2
+    load(file_phiAb);
+else
+    PhiA_q = cell(1,NDem);
+    Phib_q = cell(1,NDem);
+    tic;
+    parfor idx=1:NDem
+        PhiA_q{idx} = cellfun(Phi_A, x{idx}, 'UniformOutput',false);
+        Phib_q{idx} = cellfun(Phi_b, x{idx}, 'UniformOutput',false);
+    end
+    toc
+    save(file_phiAb);
+end
+%--------------------------------------------------------------------------
+%--------------------------------------------------------------------------
+
 %% Estimate the null space projection matrix for each demonstration
 %--------------------------------------------------------------------------
 %--------------------------------------------------------------------------
 fprintf(1,'Estimating constraints ...\n');
-N_Estimator = def_constraint_estimator(Phi_A,...
-                        'system_type','forced_action',...
-                        'task_regressors',Phi_b,...
-                        'constraint_dim',3);
-N_hat = cell(1,NDem);
-H_cell = cell(1,NDem);
-W_hat = cell(1,NDem);
+H = @(phiAq,phibq,u) phiAq*u;
+%H = @(phiAq,phibq,u) [phiAq*u; -phibq];
+constraint_dim = 3;
+% Initialize cell variables:
+N_hat_phi = cell(1,NDem);
+H_cell_phi = cell(1,NDem);
+% Compute null space projection matrix estimation
 parfor idx=1:NDem
-    [N_hat{idx}, H_cell{idx}, W_hat{idx}] = feval(N_Estimator, x{idx}, u{idx});
+    % Compute H regressors
+    H_cell_phi{idx} = cellfun(H, PhiA_q{idx}, Phib_q{idx}, u{idx}, 'UniformOutput',false);
+    % Estimate weights for the null space projection matrix
+    N_hat_phi{idx} = ClosedForm_N_Estimatior(H_cell_phi{idx}, PhiA_q{idx}, constraint_dim)
 end
 %--------------------------------------------------------------------------
 %--------------------------------------------------------------------------
@@ -90,13 +135,27 @@ fprintf(1,'Defining Unconstrained Policy Regressors ...\n');
 c = cell(1, NDem); % wiping circle centre
 r = cell(1, NDem); % wiping circle radious
 n = cell(1, NDem); % planar surface normal
-p = cell(1, NDem); % end-effector cartesian position in global frame
 Phi = cell(1,NDem);
-getPos = @(q) transl(robot.fkine(q)); % compute end-effector postion
 parfor idx=1:NDem
-    p{idx} = getPos(cell2mat(x{idx}).'); % compute end-effector postion
     [c{idx}, r{idx}, n{idx}] = fit_3d_circle(p{idx}(:,1),p{idx}(:,2),p{idx}(:,3));
     Phi{idx} = def_phi_4_cwm_sim(robot, c{idx}, r{idx}); % Get regressors for the unconstrained policy
+end
+
+%% Compute unconstrained policy regressors:
+%--------------------------------------------------------------------------
+%--------------------------------------------------------------------------
+fprintf(1,'Computing Unconstrained Policy Regressors ...\n');
+file_phi = strcat(file_name,'_phi',file_ext);
+if exist(file_phi, 'file') == 2
+    load(file_phi);
+else
+    Phi_q = cell(1,NDem);
+    tic;
+    parfor idx=1:NDem
+        Phi_q{idx} = cellfun(Phi{idx}, x{idx}, 'UniformOutput',false);
+    end
+    toc
+    save(file_phi);
 end
 %--------------------------------------------------------------------------
 %--------------------------------------------------------------------------
@@ -131,13 +190,13 @@ fprintf(1,'Learning Model Parameters...\n');
 R_cell = cell(1,NDem);
 % Compute matrix R: policy regressors times estimated null space prjection:
 parfor idx=1:NDem
-    R_cell{idx} = cellfun(@(q) N_hat{idx}(q)*Phi{idx}(q), x{idx}, 'UniformOutput',false);
+    R_cell{idx} = cellfun(@(Nhat,phi) Nhat*phi, N_hat_phi{idx}, Phi_q{idx}, 'UniformOutput',false);
 end
 R = cell2mat([R_cell{:}].');
 % Compute null space component of actions: u_ns
 u_ns = cell(1,NDem);
 parfor idx=1:NDem
-    u_ns{idx} = cellfun(@(q,u) N_hat{idx}(q)*u, x{idx}, u{idx}, 'UniformOutput',false);
+    u_ns{idx} = cellfun(@(Nhat,u) Nhat*u, N_hat_phi{idx}, u{idx}, 'UniformOutput',false);
 end
 Y = cell2mat([u_ns{:}].');
 % Weighting matrix:
@@ -165,32 +224,37 @@ end
 %--------------------------------------------------------------------------
 %--------------------------------------------------------------------------
 
-
 %% Computing end-effector positions based on learned policies
 %--------------------------------------------------------------------------
 %--------------------------------------------------------------------------
 fprintf(1,'Compute End-Effector positions...\n');
-Phi_A = def_phia_4_spm(robot);
-Phi_b = def_phib_4_spm_sim(robot); % vector of regressors as a function of the configuration for the main task
-pos = cell(1, NDem); % wiping circle centre
-traj = cell(1, NDem); % joints trajectory
-parfor idx=1:NDem
+plot_idx = [1,2,4,7];
+Nidx = numel(plot_idx);
+pos = cell(1, Nidx); % wiping circle centre
+traj = cell(1, Nidx); % joints trajectory
+% Select subset of trajectories
+x_ = x(plot_idx);
+t_ = t(plot_idx);
+n_ = n(plot_idx);
+c_ = c(plot_idx);
+policy_CAL_ = policy_CAL(plot_idx);
+parfor idx=1:Nidx
     % Problem specific constants taken from data:
-    x0 = x{idx}{1}; % initial configuration
+    x0 = x_{idx}{1}; % initial configuration
     Kp = 1; % proportional gain
     % Constant matrices:
-    W_A = blkdiag(n{idx}.', n{idx}.', n{idx}.'); % constant gain matrix for the Constraint matrix
-    W_b = -Kp*[W_A [-n{idx}.'*c{idx}; 0; 0]];
+    W_A = blkdiag(n_{idx}.', n_{idx}.', n_{idx}.'); % constant gain matrix for the Constraint matrix
+    W_b = -Kp*[W_A [-n_{idx}.'*c_{idx}; 0; 0]];
     % Definition of Constraint matrix and main task
     A = @(x) W_A*feval(Phi_A,x); % Constraint matrix as a function of configuration
     b = @(x) W_b*feval(Phi_b,x); % main task as a function of the configuration
     % Constrained Policie
-    dx = def_constrained_policy(A, b, policy_CAL{idx});
+    dx = def_constrained_policy(A, b, policy_CAL_{idx});
     % solving motion
-    sol = ode113(@(t,x) dx(x),[0 t{idx}{end}], x0);
-    [traj{idx}, ~] = deval(sol,cell2mat(t{idx})); % evaluation of solution
+    sol = ode113(@(t,x) dx(x),[0 t_{idx}{end}], x0);
+    [traj_{idx}, ~] = deval(sol,cell2mat(t_{idx})); % evaluation of solution
     %pos=transl(robot.fkine(traj));
-    pos{idx}=getPos(traj{idx}.');
+    pos_{idx}=getPos(traj_{idx}.');
 end
 %--------------------------------------------------------------------------
 %--------------------------------------------------------------------------
@@ -200,18 +264,18 @@ end
 %--------------------------------------------------------------------------
 fprintf(1,'Plotting Results...\n');
 figure(); hold on;
+p_ = p(plot_idx);
 %for idx=1:NDem
-for idx=[1,2,4,7]
+for idx=1:Nidx
     % plot
-    plot3(p{idx}(:,1),p{idx}(:,2),p{idx}(:,3),'g');
-    plot3(pos{idx}(:,1),pos{idx}(:,2),pos{idx}(:,3),'b');
+    plot3(p_{idx}(:,1),p_{idx}(:,2),p_{idx}(:,3),'g');
+    plot3(pos_{idx}(:,1),pos_{idx}(:,2),pos_{idx}(:,3),'b');
 end
 legend('data','policy','Location','best');
 xlabel('x [m]'); ylabel('y [m]'); zlabel('z [m]');
 grid on;
 axis equal;
 view(-60,20);
-error('stop here');
 %--------------------------------------------------------------------------
 %--------------------------------------------------------------------------
 
@@ -219,7 +283,7 @@ error('stop here');
 %--------------------------------------------------------------------------
 %--------------------------------------------------------------------------
 fprintf(1,'Deleting parallel pool...\n');
-delete(gcp('nocreate'));
+%delete(gcp('nocreate'));
 %--------------------------------------------------------------------------
 %--------------------------------------------------------------------------
 
