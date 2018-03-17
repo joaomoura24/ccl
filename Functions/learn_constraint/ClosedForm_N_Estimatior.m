@@ -1,4 +1,4 @@
-function [N_hat_phi] = ClosedForm_N_Estimatior(H_q, PhiA_q, ConstraintDim)
+function [N_hat_phi, WA_hat] = ClosedForm_N_Estimatior(H_q, PhiA_q, ConstraintDim)
 %------------- BEGIN CODE --------------
     H_matrix = cell2mat(H_q);
     % Singular value decomposition to estimate the gains
