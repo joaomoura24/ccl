@@ -10,7 +10,7 @@ function functionHandle = def_phi_circ()
 functionHandle = @Phi;
 function output = Phi(q)
     %output = kron([q.' c_G.' 1],eye(3));
-    output = kron([q.'],eye(3));
+    output = kron(q.',eye(3));
     %output = diag(q);
 end
 %------------- END OF CODE --------------
