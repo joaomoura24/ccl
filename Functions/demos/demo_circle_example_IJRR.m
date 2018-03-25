@@ -25,7 +25,7 @@ c = {[0;0;0],[0;0;0]};
 r = {1,1};
 n = {[0; sind(-60); cosd(-60)], [0; sind(60); cosd(60)]};
 NDem = numel(n);
-freq = 50; % frequency of the data
+freq = 100; % frequency of the data
 tf = 5; % duration of the simulation
 Nt = tf*freq; % number of training data points
 theta = linspace(0,2*pi,Nt + 1);
@@ -95,7 +95,7 @@ end
 %--------------------------------------------------------------------------
 fprintf(1,'Computing data variance...\n');
 xall = cell2mat([x{:}]).';
-scale = 0.1;
+scale = 0.2;
 model_CAPL.var = scale.*std(xall,1,1).';
 model_DPL.var = scale.*std(xall,1,1).';
 %--------------------------------------------------------------------------
@@ -106,8 +106,8 @@ model_DPL.var = scale.*std(xall,1,1).';
 %--------------------------------------------------------------------------
 fprintf(1,'Computing Receptive Fields Centres ...\n');
 stream = RandStream('mlfg6331_64');  % Random number stream for parallel computation
-options = statset('Display','off','MaxIter',1000,'UseParallel',1,'UseSubstreams',1,'Streams',stream);
-Nmodels = 1;
+options = statset('Display','off','MaxIter',10000,'UseParallel',1,'UseSubstreams',1,'Streams',stream);
+Nmodels = 20;
 [~,C] = kmeans(xall,Nmodels,'Distance','cityblock','EmptyAction','singleton','Start','uniform',...
     'Replicates',10,'OnlinePhase','off','Options', options);
 model_CAPL.c = C.';
@@ -167,7 +167,7 @@ policy_DPL = def_weighted_linear_model(model_DPL, Phi);
 fprintf(1,'Computing End-Effector positions...\n');
 traj_CAPL_dx = cell(1, NDem); % joints trajectory
 traj_DPL_dx = cell(1, NDem); % joints trajectory
-parfor idx=1:NDem
+for idx=1:NDem
     % Problem specific constants taken from data:
     x0 = x{idx}{1}; % initial configuration
     % Constant matrices:
@@ -179,8 +179,8 @@ parfor idx=1:NDem
     dx_CAPL = def_constrained_policy(A, b, policy_CAPL);
     dx_DPL = def_constrained_policy(A, b, policy_DPL);
     % solving motion
-    sol_DPL_dx = ode113(@(t,x) dx_DPL(x),[0 t{idx}{end}], x0);
-    [traj_DPL_dx{idx}, ~] = deval(sol_DPL_dx,cell2mat(t{idx})); % evaluation of solution
+    sol_DPL_dx = ode113(@(t,x) dx_DPL(x),[0 1.566.*t{idx}{end}], x0);
+    [traj_DPL_dx{idx}, ~] = deval(sol_DPL_dx,1.566.*cell2mat(t{idx})); % evaluation of solution
     sol_CAPL_dx = ode113(@(t,x) dx_CAPL(x),[0 t{idx}{end}], x0);
     [traj_CAPL_dx{idx}, ~] = deval(sol_CAPL_dx,cell2mat(t{idx})); % evaluation of solution
 end
@@ -192,17 +192,20 @@ end
 %--------------------------------------------------------------------------
 fprintf(1,'Plotting Results...\n');
 figure(); hold on;
+kk = 5;
 for idx=1:NDem
     % plot
-    pos = cell2mat(x{idx});
-    plot3(pos(1,:),pos(2,:),pos(3,:),'g.'); hold on;
-    plot3(traj_DPL_dx{idx}(1,:),traj_DPL_dx{idx}(2,:),traj_DPL_dx{idx}(3,:),'b');
-    plot3(traj_CAPL_dx{idx}(1,:),traj_CAPL_dx{idx}(2,:),traj_CAPL_dx{idx}(3,:),'r');
-    plot3(x{idx}{1}(1),x{idx}{1}(2),x{idx}{1}(3),'*k');
+    pos_data = downsample(cell2mat(x{idx})',kk)';
+    pos_DPL = downsample(traj_DPL_dx{idx}',kk)';
+    pos_CAPL = downsample(traj_CAPL_dx{idx}',kk)';
+    plot3(pos_data(1,:),pos_data(2,:),pos_data(3,:),'g-+'); hold on;
+    plot3(pos_DPL(1,:),pos_DPL(2,:),pos_DPL(3,:),'b-o');
+    plot3(pos_CAPL(1,:),pos_CAPL(2,:),pos_CAPL(3,:),'r-*');
+    plot3(x{idx}{1}(1),x{idx}{1}(2),x{idx}{1}(3),'xk','MarkerSize', 15,'linewidth',4);
 end
 grid on; axis image;
-view(100,20);
-legend('data','DPL','CAPL','Location','best');
+view(140,35);
+legend('data','DPL','CAPL','x_0','Location','best');
 xlabel('x [m]'); ylabel('y [m]'); zlabel('z [m]');
 %--------------------------------------------------------------------------
 %--------------------------------------------------------------------------
@@ -244,8 +247,8 @@ x0 = [1; 0; 0]; % initial configuration
 % solving motion
 sol_DPL_dx = ode113(@(t,x) dx_DPL(x),[0 t{1}{end}], x0);
 [traj_DPL_dx, ~] = deval(sol_DPL_dx,cell2mat(t{1})); % evaluation of solution
-sol_CAPL_dx = ode113(@(t,x) dx_CAPL(x),[0 t{1}{end}], x0);
-[traj_CAPL_dx, ~] = deval(sol_CAPL_dx,cell2mat(t{1})); % evaluation of solution
+sol_CAPL_dx = ode113(@(t,x) dx_CAPL(x),[0 0.5.*t{1}{end}], x0);
+[traj_CAPL_dx, ~] = deval(sol_CAPL_dx,0.5.*cell2mat(t{1})); % evaluation of solution
 %--------------------------------------------------------------------------
 %--------------------------------------------------------------------------
 
@@ -253,12 +256,15 @@ sol_CAPL_dx = ode113(@(t,x) dx_CAPL(x),[0 t{1}{end}], x0);
 %--------------------------------------------------------------------------
 %--------------------------------------------------------------------------
 fprintf(1,'Plotting Results...\n');
-plot(traj_DPL_dx(1,:),traj_DPL_dx(2,:),'b');
-plot(traj_CAPL_dx(1,:),traj_CAPL_dx(2,:),'r');
-plot(x0(1),x0(2),'*k');
+kk = 5;
+pos_DPL = downsample(traj_DPL_dx',kk)';
+pos_CAPL = downsample(traj_CAPL_dx',kk)';
+plot(pos_DPL(1,:),pos_DPL(2,:),'b-o');
+plot(pos_CAPL(1,:),pos_CAPL(2,:),'r-*');
+plot(x0(1),x0(2),'xk','MarkerSize', 15,'linewidth',4);
 axis image; grid on;
 xlabel('x [m]'); ylabel('y [m]');
-legend('DP','CAP','DP traj','CAP traj','Location','best');
+legend('DPL','CAPL','DPL traj.','CAPL traj.','x_0','Location','best');
 hold off;
 %--------------------------------------------------------------------------
 %--------------------------------------------------------------------------
