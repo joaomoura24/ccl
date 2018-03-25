@@ -1,24 +1,14 @@
 %% Add path
 %--------------------------------------------------------------------------
 %--------------------------------------------------------------------------
-addpath(genpath('../'));
+addpath(genpath('../')); % add the library and it's subfolders to the path
 %--------------------------------------------------------------------------
 %--------------------------------------------------------------------------
 
-%% Get data
+%% User Input
 %--------------------------------------------------------------------------
 %--------------------------------------------------------------------------
-fprintf(1,'Getting data ...\n');
-load('data_ref_sep.mat');
-NDem = length(x); % number of demonstrations
-%--------------------------------------------------------------------------
-%--------------------------------------------------------------------------
-
-%% Initialize roobot model and the Regressors for the constraint and main task
-%--------------------------------------------------------------------------
-%--------------------------------------------------------------------------
-fprintf(1,'Defining robot model ...\n');
-DH = [0.0, 0.31, 0.0, pi/2; % Robot Kinematic model specified by the Denavit-Hartenberg
+DH = [0.0, 0.31, 0.0, pi/2; % Robot Kinematic model specified by the Denavit-Hartnbergh
       0.0, 0.0, 0.0, -pi/2;
       0.0, 0.4, 0.0, -pi/2;
       0.0, 0.0, 0.0, pi/2;
@@ -29,38 +19,39 @@ robot = SerialLink(DH); % Peters Cork robotics library has to be installed
 %--------------------------------------------------------------------------
 %--------------------------------------------------------------------------
 
-%% Compute centres and operational trajectory
+%% Get data
 %--------------------------------------------------------------------------
 %--------------------------------------------------------------------------
-fprintf(1,'Compute end-effector positions ...\n');
+fprintf(1,'Getting data ...\n');
+%load('../data_generation/data_simulated.mat');
+load('data_ref_sep.mat');
+%load('demonstrations_mat/data.mat');
+NDem = length(x); % number of demonstrations
+%--------------------------------------------------------------------------
+%--------------------------------------------------------------------------
+
+%% Compute end-effector position
+%--------------------------------------------------------------------------
+%--------------------------------------------------------------------------
+fprintf(1,'Compute end-effector position ...\n');
 p = cell(1, NDem); % end-effector cartesian position in global frame
 getPos = @(q) transl(robot.fkine(q)); % compute end-effector postion
-for idx=1:NDem
+parfor idx=1:NDem
     p{idx} = getPos(cell2mat(x{idx}).'); % compute end-effector postion
 end
 %--------------------------------------------------------------------------
 %--------------------------------------------------------------------------
 
-%% Plot end-effector positions
+%% Plot end-effector position
 %--------------------------------------------------------------------------
 %--------------------------------------------------------------------------
-fprintf(1,'Plotting Results...\n');
+fprintf(1,'Plot end-effector position ...\n');
 figure(); hold on;
-col=jet(NDem);
-%col = col(randperm(NDem),:);
-legendInfo = cell(1, NDem);
 for idx=1:NDem
-    % plot
-    plot3(p{idx}(:,1),p{idx}(:,2),p{idx}(:,3),'color',col(idx,:), 'LineWidth', 3);
-    legendInfo{idx} = strcat('dem. ',int2str(idx)); % or whatever is appropriate
-    grid on;
-    axis image;
+    plot3(p{idx}(:,1),p{idx}(:,2),p{idx}(:,3));
 end
-legend(legendInfo);
-xlabel('x [m]');
-ylabel('y [m]');
-zlabel('z [m]');
-view(50,25);
+hold off; axis equal;
+xlabel('x'); ylabel('y'); zlabel('z');
 %--------------------------------------------------------------------------
 %--------------------------------------------------------------------------
 
